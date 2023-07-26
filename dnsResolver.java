@@ -16,8 +16,6 @@ public class dnsResolver {
 
         int port = Integer.parseInt(args[0]);
         DatagramSocket socket = new DatagramSocket(port);
-        //InetAddress ipAddress = InetAddress.getByName("125.253.99.33");
-        // need to regex root file to get ipv4 addresses
         while (true) {
             DatagramPacket request = new DatagramPacket(new byte[1024], 1024);
             socket.receive(request);
@@ -27,14 +25,13 @@ public class dnsResolver {
             // details to build return datagram packet
             InetAddress clientHost = request.getAddress();
             int clientPort = request.getPort();
-
-            //byte[] array = request.getData();
-            //System.out.println(array.length);
+            // NEW UNTESTED LINE BELOLW
+            HashSet<String> visited = new HashSet<>();
             String filepath = "named.root";
             ArrayList<String> rootServers = extractRootAddresses(filepath);
             System.out.println(rootServers);
             DatagramSocket socket2 = new DatagramSocket();
-            byte[] ret = sendAnswerPacket(rootServers, array, socket2, new ArrayList<>(rootServers));
+            byte[] ret = sendAnswerPacket(rootServers, array, socket2, new ArrayList<>(rootServers), visited);
             DatagramPacket packet = new DatagramPacket(ret, ret.length, clientHost, clientPort);
             socket.send(packet);
         }
@@ -160,18 +157,19 @@ public class dnsResolver {
         return byteArrayOutput.toByteArray();
     }
 
-    private static byte[] sendAnswerPacket(ArrayList<String> ipAddresses, byte[] data, DatagramSocket socket, ArrayList<String> rootServers) throws Exception {
+    private static byte[] sendAnswerPacket(ArrayList<String> ipAddresses, byte[] data, DatagramSocket socket, ArrayList<String> rootServers, HashSet<String> visited) throws Exception {
         while (!ipAddresses.isEmpty()) {
             // pop from list
-            System.out.println("INFINTE LOOP");
-            InetAddress sendAddress = InetAddress.getByName(ipAddresses.remove(ipAddresses.size() - 1));
+            String sendAddressString = ipAddresses.remove(ipAddresses.size() - 1);
+            System.out.println(sendAddressString);
+            InetAddress sendAddress = InetAddress.getByName(sendAddressString);
             // send packet
             DatagramPacket rep = new DatagramPacket(data, data.length, sendAddress, DNS_SERVER_PORT);
             socket.send(rep);
             byte[] response = new byte[1024];
             DatagramPacket packet = new DatagramPacket(response, response.length);
             socket.receive(packet);
-            System.out.println("please WORKKFGMWKNFGMOWJNFGUOIWN");
+            visited.add(sendAddressString);
             // decode and add to the list if possible (or return)
             DataInputStream dataInputStream = new DataInputStream(new ByteArrayInputStream(response));
             System.out.println("Transaction ID: " + dataInputStream.readShort()); // ID
@@ -201,7 +199,9 @@ public class dnsResolver {
             if (aRecords.size() > 0) {
                 System.out.println("please WORK");
                 for (String address : aRecords) {
-                    ipAddresses.add(address);
+                    if (!visited.contains(address)) {
+                        ipAddresses.add(address);
+                    }
                 }
             } else {
                 System.out.println("please WORKKFGMWKNFGMOWJNFGUOIWN");
@@ -215,7 +215,7 @@ public class dnsResolver {
                         }
                     }
                     if (!nsAddresses.isEmpty()) {
-                        byte[] res = sendAnswerPacket(nsAddresses, data, socket, rootServers);
+                        byte[] res = sendAnswerPacket(nsAddresses, data, socket, rootServers, visited);
                         if (res != null) {
                             return res;
                         }
