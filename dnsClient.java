@@ -5,7 +5,7 @@ import java.util.*;
 public class dnsClient {
     private static final int NAME_ERROR = 3;
     private static final int FORMAT_ERROR = 2;
-    private static final int SERVER_ERROR = 0;
+    private static final int SERVER_ERROR = 1;
 
 
     public static void main(String[] args) throws Exception {

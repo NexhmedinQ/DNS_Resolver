@@ -18,7 +18,6 @@ public class dnsResolver {
         DatagramSocket socket = new DatagramSocket(port);
         //InetAddress ipAddress = InetAddress.getByName("125.253.99.33");
         // need to regex root file to get ipv4 addresses
-        int portNum = 5301;
         while (true) {
             DatagramPacket request = new DatagramPacket(new byte[1024], 1024);
             socket.receive(request);
@@ -34,7 +33,7 @@ public class dnsResolver {
             String filepath = "named.root";
             ArrayList<String> rootServers = extractRootAddresses(filepath);
             System.out.println(rootServers);
-            DatagramSocket socket2 = new DatagramSocket(portNum++);
+            DatagramSocket socket2 = new DatagramSocket();
             byte[] ret = sendAnswerPacket(rootServers, array, socket2, new ArrayList<>(rootServers));
             DatagramPacket packet = new DatagramPacket(ret, ret.length, clientHost, clientPort);
             socket.send(packet);
