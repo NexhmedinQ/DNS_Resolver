@@ -4,8 +4,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.*;
 public class dnsClient {
     private static final int NAME_ERROR = 3;
-    private static final int FORMAT_ERROR = 2;
-    private static final int SERVER_ERROR = 1;
+    private static final int FORMAT_ERROR = 1;
+    private static final int SERVER_ERROR = 2;
 
 
     public static void main(String[] args) throws Exception {
@@ -46,7 +46,7 @@ public class dnsClient {
         } else if (RCODE == FORMAT_ERROR) {
             System.out.println("Error: format error (RCODE == 1)");
         } else if (RCODE == SERVER_ERROR) {
-            System.out.println("Error: server error (RCODE == 1)");
+            System.out.println("Error: server error (RCODE == 2)");
         }
         dataInputStream.skipBytes(2);
         short ANCOUNT = dataInputStream.readShort();

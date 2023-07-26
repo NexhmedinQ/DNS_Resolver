@@ -34,7 +34,7 @@ public class dnsResolver {
             byte[] ret = sendAnswerPacket(rootServers, array, socket2, new ArrayList<>(rootServers), visited);
             DatagramPacket packet;
             if (ret == null) {
-                array[3] = (byte) (array[3] & 0b00001111);
+                array[3] = (byte) (array[3] | 0b00000010);
                 packet = new DatagramPacket(array, array.length, clientHost, clientPort);
             } else {
                 packet = new DatagramPacket(ret, ret.length, clientHost, clientPort);
