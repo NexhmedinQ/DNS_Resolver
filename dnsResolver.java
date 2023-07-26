@@ -32,7 +32,14 @@ public class dnsResolver {
             System.out.println(rootServers);
             DatagramSocket socket2 = new DatagramSocket();
             byte[] ret = sendAnswerPacket(rootServers, array, socket2, new ArrayList<>(rootServers), visited);
-            DatagramPacket packet = new DatagramPacket(ret, ret.length, clientHost, clientPort);
+            DatagramPacket packet;
+            if (ret == null) {
+                array[3] = (byte) (array[3] & 0b00001111);
+                packet = new DatagramPacket(array, array.length, clientHost, clientPort);
+            } else {
+                packet = new DatagramPacket(ret, ret.length, clientHost, clientPort);
+            }
+            
             socket.send(packet);
         }
     } 
