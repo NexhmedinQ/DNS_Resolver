@@ -118,6 +118,10 @@ public class dnsResolver {
             for (int i = 0; i < NSCOUNT; i++) {
                 skipQname(dataInputStream);
                 short TYPE = dataInputStream.readShort();
+                if (TYPE != 2) {
+                    skipOtherRecordTypes(dataInputStream);
+                    continue;
+                }
                 short CLASS = dataInputStream.readShort();
                 int TTL = dataInputStream.readInt();
                 int RDLENGTH = dataInputStream.readShort();
@@ -135,30 +139,35 @@ public class dnsResolver {
 
             // usually holds AAAA and A records
             // skip all AAAA records and query first A record we come across. 
-            // for (int i = 0; i < ARCOUNT; i++) {
-            //     skipQname(dataInputStream);
-            //     ArrayList<Integer> RDATA = new ArrayList<>();
-            //     short TYPE = dataInputStream.readShort();
-            //     short CLASS = dataInputStream.readShort();
-            //     int TTL = dataInputStream.readInt();
-            //     int RDLENGTH = dataInputStream.readShort();
-            //     for(int s = 0; s < RDLENGTH; s++) {
-            //         int nx = dataInputStream.readByte() & 255;// and with 255 to
-            //         RDATA.add(nx);
-            //     }
+            for (int i = 0; i < ARCOUNT; i++) {
+                skipQname(dataInputStream);
+                ArrayList<Integer> RDATA = new ArrayList<>();
+                short TYPE = dataInputStream.readShort();
+                // some support to skip AAAA records if we come across them
+                if (TYPE != 1) {
+                    skipOtherRecordTypes(dataInputStream);
+                    continue;
+                }
+                short CLASS = dataInputStream.readShort();
+                int TTL = dataInputStream.readInt();
+                int RDLENGTH = dataInputStream.readShort();
+                for(int s = 0; s < RDLENGTH; s++) {
+                    int nx = dataInputStream.readByte() & 255;// and with 255 to
+                    RDATA.add(nx);
+                }
 
-            //     System.out.println("Type: " + TYPE);
-            //     System.out.println("Class: " + CLASS);
-            //     System.out.println("Time to live: " + TTL);
-            //     System.out.println("Rd Length: " + RDLENGTH);
-            //     StringBuilder ip = new StringBuilder();
-            //     for (Integer ipPart:RDATA) {
-            //         ip.append(ipPart).append(".");
-            //     }
-            //     ip.deleteCharAt(ip.length() - 1);
-            //     String ipFinal = ip.toString();
-            //     System.out.println(ipFinal);
-            // }
+                System.out.println("Type: " + TYPE);
+                System.out.println("Class: " + CLASS);
+                System.out.println("Time to live: " + TTL);
+                System.out.println("Rd Length: " + RDLENGTH);
+                StringBuilder ip = new StringBuilder();
+                for (Integer ipPart:RDATA) {
+                    ip.append(ipPart).append(".");
+                }
+                ip.deleteCharAt(ip.length() - 1);
+                String ipFinal = ip.toString();
+                System.out.println(ipFinal);
+            }
             
         }
     }
@@ -233,5 +242,11 @@ public class dnsResolver {
             }
             dataInputStream.skipBytes(labelLength);
         }
+    }
+
+    private static void skipOtherRecordTypes(DataInputStream stream) throws IOException {
+        stream.skipBytes(6); // TTL and CLASS fields
+        short rdataLength = stream.readShort();
+        stream.skipBytes(rdataLength);
     }
 }
