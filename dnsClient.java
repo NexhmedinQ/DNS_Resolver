@@ -3,7 +3,11 @@ import java.net.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 public class dnsClient {
-    
+    private static final int NAME_ERROR = 3;
+    private static final int FORMAT_ERROR = 2;
+    private static final int SERVER_ERROR = 0;
+
+
     public static void main(String[] args) throws Exception {
         
         if (args.length != 3) {
@@ -24,13 +28,25 @@ public class dnsClient {
         byte [] byteArray = buildPacket(requestID, requestAddr);
         DatagramPacket packet = new DatagramPacket(byteArray, byteArray.length, ipAddress, resolverPort);
         socket.send(packet);
-        // System.out.println("Sending: " + byteArray.length + " bytes");
-        // for (int i = 0; i < byteArray.length; i++) {
-        //     System.out.print(String.format("%s", byteArray[i]));
-        // }
 
+        byte[] response = new byte[1024];
+        DatagramPacket responsePacket = new DatagramPacket(response, response.length);
+        socket.receive(responsePacket);
+        DataInputStream dataInputStream = new DataInputStream(new ByteArrayInputStream(response));
 
-
+        short queryID = dataInputStream.readShort();
+        short flags = dataInputStream.readByte();
+        int AA = ( flags & 0b00000100) >>> 2;
+        int TC = ( flags & 0b00000010) >>> 1;
+        flags = dataInputStream.readByte();
+        int RCODE = flags & 0b00001111; // for errors
+        if (RCODE == NAME_ERROR) {
+            System.out.println("Error: server can't find " + requestAddr);
+        } else if (RCODE == FORMAT_ERROR) {
+            System.out.println("Error: format error (RCODE == 1)");
+        } else if (RCODE == SERVER_ERROR) {
+            System.out.println("Error: server error (RCODE == 1)");
+        }
         // need to parse packet -> first check for errors
         // send all the answers (IP addresses), whether the answer was authoritative (check AA bit) and whether it was truncated (TC bit)
 	}

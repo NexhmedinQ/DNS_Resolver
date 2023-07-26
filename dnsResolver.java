@@ -2,6 +2,8 @@ import java.io.*;
 import java.net.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 public class dnsResolver {
     private static final int DNS_SERVER_PORT = 53;
     public static void main(String[] args) throws Exception {
@@ -20,7 +22,11 @@ public class dnsResolver {
         while (true) {
             DatagramPacket request = new DatagramPacket(new byte[1024], 1024);
             socket.receive(request);
-            System.out.println("GOT IT");
+
+            // details to build return datagram packet
+            InetAddress clientHost = request.getAddress();
+            int clientPort = request.getPort();
+
             byte[] array = request.getData();
             DatagramPacket rep = new DatagramPacket(array, array.length, ipAddress, DNS_SERVER_PORT);
             socket.send(rep);
@@ -52,6 +58,26 @@ public class dnsResolver {
             int RA = (flags & 0b10000000) >>> 7;
             int Z = ( flags & 0b01110000) >>> 4;
             int RCODE = flags & 0b00001111; // for errors
+            // send packet to client and continue
+            if (checkOtherErrors(RCODE)) {
+                 
+            }
+            // have to give the function a different socket to use. 
+
+            // if we have the answer || we have a non-server error we return to the client
+            // if we have a server error or we don't have an answer we continue
+            // in the case of a server error pop from array
+            // in the case of no answer extract any relevant info ->
+            // if we have ip addresses in the additional info then we add them to the list and continue our search
+            // if we don't have ip addresses then we get all ip's from authoritative info whereby we need to send A queries to get the ip of the NS.
+            // do this for one of the NS records -> then make a recursive call
+            // our base case is while there is still ip addresses in the list 
+            // so we can pass a new list of size 1 with the ip address taken from that NS
+            // lets say the ip addresswill end up giving us an additional 2 ip addresses to search
+            // so we'll pop then add the 2 ip addresses
+            // if both of the ip addresses fail 
+            // the list size will now be 0 so we return false to the function that called us
+            // this recursive call will only be in the even that we only have NS records and nothing in additional.
             System.out.println("RA "+RA);
             System.out.println("Z "+ Z);
             System.out.println("RCODE " +RCODE);
@@ -84,8 +110,6 @@ public class dnsResolver {
             System.out.println("Class: " + String.format("%s", QCLASS));
 
             System.out.println("\n\nstart answer, authority, and additional sections\n");
-
-            
 
             for (int i = 0; i < ANCOUNT; i++) {
                 skipQname(dataInputStream);
@@ -174,13 +198,6 @@ public class dnsResolver {
             
         }
     }
-
-
-		// bind resolver to port 5300 to listen
-        // keep it in an infinite loop
-        // when a new request is sent create a new thread to process the request
-
-
         // processing the request
         // if error:
         // server error -> try different root server
@@ -198,11 +215,17 @@ public class dnsResolver {
         // if we reach a situation where the list is empty we can query the next root server. 
 
 
-    private static boolean checkServerError(DataInputStream dataInputStream) throws IOException {
+    private static boolean checkServerError(int RCODE) throws IOException {
+        if (RCODE == 2) {
+            return true;
+        }
         return false;
     }
 
-    private static boolean checkOtherErrors(DataInputStream dataInputStream) throws IOException {
+    private static boolean checkOtherErrors(int RCODE) throws IOException {
+        if (RCODE == 1 || RCODE == 3) {
+            return true;
+        }
         return false;  
     }
 
@@ -259,8 +282,83 @@ public class dnsResolver {
         stream.skipBytes(rdataLength);
     }
 
-    private static ArrayList<String> extractRootAddresses(String filepath) {
-        return null;
+    private static List<String> extractRootAddresses(String filePath) {
+        ArrayList<String> ipAddresses = new ArrayList<>();
+
+        try (BufferedReader reader = new BufferedReader(new FileReader(filePath))) {
+            String line;
+            Pattern ipv4Pattern = Pattern.compile("(\\d+\\.){3}\\d+");
+            
+            while ((line = reader.readLine()) != null) {
+                Matcher matcher = ipv4Pattern.matcher(line);
+                while (matcher.find()) {
+                    String ipv4Address = matcher.group();
+                    ipAddresses.add(ipv4Address);
+                }
+            }
+        } catch (IOException e) {
+            System.err.println("Error reading the file: " + e.getMessage());
+        }
+
+        return ipAddresses;
         
+    }
+
+    private static byte[] buildPacket(short requestID, String requestAddr, boolean isRecursive) throws Exception {
+        ByteArrayOutputStream byteArrayOutput = new ByteArrayOutputStream();
+        DataOutputStream dataOutput = new DataOutputStream(byteArrayOutput);
+        short requestFlags;
+        if (isRecursive) {
+            requestFlags = Short.parseShort("0000000100000000", 2);
+        } else {
+            requestFlags = Short.parseShort("0000000000000000", 2);
+        }
+        dataOutput.writeShort(requestID);
+        dataOutput.writeShort(requestFlags);
+        // the counts
+        dataOutput.writeShort(1);
+        dataOutput.writeShort(0);
+        dataOutput.writeShort(0);
+        dataOutput.writeShort(0);
+        String[] addressParts = requestAddr.split("\\.");
+        for (int i = 0; i < addressParts.length; i++) {
+            byte[] bytes = addressParts[i].getBytes(StandardCharsets.UTF_8);
+            dataOutput.writeByte(bytes.length);
+            dataOutput.write(bytes);
+        }
+        dataOutput.writeByte(0);
+        // A record
+        dataOutput.writeShort(1);
+        // IN class
+        dataOutput.writeShort(1);
+        return byteArrayOutput.toByteArray();
+    }
+
+    private static byte[] sendAnswerPacket(ArrayList<String> ipAddresses, byte[] data, DatagramSocket socket) throws Exception {
+        while (!ipAddresses.isEmpty()) {
+            // pop from list
+            InetAddress sendAddress = InetAddress.getByName(ipAddresses.remove(ipAddresses.size() - 1));
+            // send packet
+            DatagramPacket rep = new DatagramPacket(data, data.length, sendAddress, DNS_SERVER_PORT);
+            socket.send(rep);
+            byte[] response = new byte[1024];
+            DatagramPacket packet = new DatagramPacket(response, response.length);
+            socket.receive(packet);
+            // decode and add to the list if possible (or return)
+            DataInputStream dataInputStream = new DataInputStream(new ByteArrayInputStream(response));
+            System.out.println("Transaction ID: " + dataInputStream.readShort()); // ID
+            short flags = dataInputStream.readByte();
+            flags = dataInputStream.readByte();
+            int RCODE = flags & 0b00001111; // for errors
+            short QDCOUNT = dataInputStream.readShort();
+            short ANCOUNT = dataInputStream.readShort();
+            short NSCOUNT = dataInputStream.readShort();
+            short ARCOUNT = dataInputStream.readShort();
+            // send packet to client and continue
+            if (checkOtherErrors(RCODE)) {
+                 
+            }
+        }
+        return null;
     }
 }
