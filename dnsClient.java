@@ -26,6 +26,7 @@ public class dnsClient {
         // Generate a random short value
         short requestID = (short) random.nextInt(Short.MAX_VALUE + 1);
         byte [] byteArray = buildPacket(requestID, requestAddr);
+        System.out.println(byteArray.length);
         DatagramPacket packet = new DatagramPacket(byteArray, byteArray.length, ipAddress, resolverPort);
         socket.send(packet);
 
@@ -47,6 +48,12 @@ public class dnsClient {
         } else if (RCODE == SERVER_ERROR) {
             System.out.println("Error: server error (RCODE == 1)");
         }
+        dataInputStream.skipBytes(2);
+        short ANCOUNT = dataInputStream.readShort();
+        dataInputStream.skipBytes(4);
+        skipQuestionSection(dataInputStream);
+        ArrayList<String> address = getAnswers(dataInputStream, ANCOUNT);
+        System.out.println(address);
         // need to parse packet -> first check for errors
         // send all the answers (IP addresses), whether the answer was authoritative (check AA bit) and whether it was truncated (TC bit)
 	}
@@ -74,5 +81,50 @@ public class dnsClient {
         // IN class
         dataOutput.writeShort(1);
         return byteArrayOutput.toByteArray();
+    }
+
+    private static void skipQname(DataInputStream dataInputStream) throws IOException {
+        int labelLength;
+        while ((labelLength = dataInputStream.readUnsignedByte()) > 0) {
+            if ((labelLength & 0xC0) == 0xC0) {
+                dataInputStream.skipBytes(1);
+                break;
+            }
+            dataInputStream.skipBytes(labelLength);
+        }
+    }
+
+    private static void skipQuestionSection(DataInputStream dataInputStream) throws IOException {
+        int wordLen;
+        while ((wordLen = dataInputStream.readByte()) > 0) {
+            for (int i = 0; i < wordLen; i++) {
+                dataInputStream.readByte();
+            }
+        }
+
+        dataInputStream.skipBytes(4);
+    }
+
+    private static ArrayList<String> getAnswers(DataInputStream dataInputStream, short ANCOUNT) throws IOException {
+        ArrayList<String> answerList = new ArrayList<>();
+        for (int i = 0; i < ANCOUNT; i++) {
+            skipQname(dataInputStream);
+            ArrayList<Integer> RDATA = new ArrayList<>();
+            dataInputStream.skipBytes(8);
+            int RDLENGTH = dataInputStream.readShort();
+            for (int s = 0; s < RDLENGTH; s++) {
+                int nx = dataInputStream.readByte() & 255;
+                RDATA.add(nx);
+            }
+
+            StringBuilder ip = new StringBuilder();
+            for (Integer ipPart:RDATA) {
+                ip.append(ipPart).append(".");
+            }
+            ip.deleteCharAt(ip.length() - 1);
+            String ipFinal = ip.toString();
+            answerList.add(ipFinal);
+        }
+        return answerList;
     }
 }
