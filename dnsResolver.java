@@ -114,7 +114,7 @@ public class dnsResolver {
             System.out.println("\n");
             // holds NS records -> skip if we have A records in the additional section
             // otherwise need to process one of the NS records
-
+            int nsRecordCount = 0;
             for (int i = 0; i < NSCOUNT; i++) {
                 skipQname(dataInputStream);
                 short TYPE = dataInputStream.readShort();
@@ -122,6 +122,7 @@ public class dnsResolver {
                     skipOtherRecordTypes(dataInputStream);
                     continue;
                 }
+                nsRecordCount++;
                 short CLASS = dataInputStream.readShort();
                 int TTL = dataInputStream.readInt();
                 int RDLENGTH = dataInputStream.readShort();
@@ -139,6 +140,7 @@ public class dnsResolver {
 
             // usually holds AAAA and A records
             // skip all AAAA records and query first A record we come across. 
+            int aRecordCount = 0;
             for (int i = 0; i < ARCOUNT; i++) {
                 skipQname(dataInputStream);
                 ArrayList<Integer> RDATA = new ArrayList<>();
@@ -148,6 +150,7 @@ public class dnsResolver {
                     skipOtherRecordTypes(dataInputStream);
                     continue;
                 }
+                aRecordCount++;
                 short CLASS = dataInputStream.readShort();
                 int TTL = dataInputStream.readInt();
                 int RDLENGTH = dataInputStream.readShort();
@@ -187,6 +190,12 @@ public class dnsResolver {
         // if we have > 0 in additional section get that IP and send the next query
         // if we have = 0 then send A packet for record in authoritative section
         // if answer -> send to client
+
+        // have a read only list of all the root servers
+        // have a lsit of name servers to look up to find the result. 
+        // when we use an ip address we can pop from the back and use the next one
+        // upon a successful non-answer query we add the new ip address to the end. 
+        // if we reach a situation where the list is empty we can query the next root server. 
 
 
     private static boolean checkServerError(DataInputStream dataInputStream) throws IOException {
@@ -248,5 +257,10 @@ public class dnsResolver {
         stream.skipBytes(6); // TTL and CLASS fields
         short rdataLength = stream.readShort();
         stream.skipBytes(rdataLength);
+    }
+
+    private static ArrayList<String> extractRootAddresses(String filepath) {
+        return null;
+        
     }
 }
