@@ -28,6 +28,7 @@ public class Client {
         short requestID = (short) random.nextInt(Short.MAX_VALUE + 1);
         byte [] byteArray = Helper.buildPacket(requestID, requestAddr);
         DatagramPacket packet = new DatagramPacket(byteArray, byteArray.length, ipAddress, resolverPort);
+        long currentTimeMillis = System.nanoTime();
         socket.send(packet);
 
         byte[] response = new byte[1024];
@@ -38,6 +39,32 @@ public class Client {
             System.out.println("The query has timed out");
             socket.close();
             return;
+        }
+        long recTime = System.nanoTime();
+        long timeTaken = recTime - currentTimeMillis;
+        String filePath = "data.txt";
+        double millis = (double) timeTaken / 1000000.0;
+
+        // Convert to a string with 3 decimal places
+        String formattedTime = String.format("%.3f", millis);
+        try {
+            File file = new File(filePath);
+            if (!file.exists()) {
+                file.createNewFile();
+            }
+            FileWriter fileWriter = new FileWriter(file, true);
+
+            BufferedWriter bufferedWriter = new BufferedWriter(fileWriter);
+
+            bufferedWriter.write(formattedTime);
+            bufferedWriter.newLine();
+
+            bufferedWriter.close();
+            fileWriter.close();
+
+            System.out.println("Data appended to the file successfully.");
+        } catch (IOException e) {
+            System.err.println("Error appending data to the file: " + e.getMessage());
         }
         DataInputStream dataInputStream = new DataInputStream(new ByteArrayInputStream(response));
 

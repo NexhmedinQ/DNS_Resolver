@@ -1,12 +1,5 @@
 #!/bin/bash
 
-# how do i do this????
-# need to time in the client how long it takes to get a response
-# send each result to a file and sort that file
-# write script to make queries
-# modify the multiplex.sh file so that it reads from the file of all the domain names??
-
-
 usage() {
     cmd=$(basename "$0")
     echo "usage: $cmd <lang> <numclients> <sleep> <address> <port> <timeout>" >&2
@@ -88,46 +81,9 @@ echo "\nspawning clients...\n"
 
 while IFS= read -r line; do
     domain_name=$(echo "$line" | grep -oE '[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}')
-    sleep 1
-    i=1
-    while [ "$i" -le "$numclients" ]
-    do
-    #out="client${i}.out"
+    echo "$domain_name"
     eval "$client $address $port $domain_name $timeout" > /dev/null &
     pids="$pids $!"
     sleep "$delay"
-    i=$((i+1))
-    done
-done < "domains.txt"
-# i=1
-# echo "\nwaiting for clients...\n"
-
-# for pid in $pids
-# do
-#     echo "${i}. wait for pid $pid"
-#     wait "$pid"
-#     i=$((i+1))
-# done
-
-# i=1
-# echo "\nclient output...\n"
-
-# while [ "$i" -le "$numclients" ]
-# do
-#     out="client${i}.out"
     
-#     if [ ! -f "$out" ]
-#     then
-#         echo "error: '${out} not found'" >&2
-#         continue
-#     fi
-
-#     if [ "$i" -gt 1 ]
-#     then
-#         echo
-#     fi
-
-#     echo "==> $out <=="
-#     cat "$out"
-#     i=$((i+1))
-# done
+done < "domains.txt"
