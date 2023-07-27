@@ -8,20 +8,21 @@ public class dnsClient {
     private static final int SERVER_ERROR = 2;
 
 
-    public static void main(String[] args) throws Exception {
+    public static void main(String[] args) throws Exception  {
         
-        if (args.length != 3) {
+        if (args.length != 4) {
             System.err.println("Error: invalid arguments");
-            System.err.println("Usage: client resolver_ip resolver_port name");
+            System.err.println("Usage: client resolver_ip resolver_port name timeout");
             System.exit(1);
         }
         String resolverAddr = args[0];
         int resolverPort = Integer.parseInt(args[1]);
 		String requestAddr = args[2];
+        int timeout = Integer.parseInt(args[3]) * 1000;
         
         InetAddress ipAddress = InetAddress.getByName(resolverAddr);
         DatagramSocket socket = new DatagramSocket();
-        
+        socket.setSoTimeout(timeout);
         Random random = new Random();
         // Generate a random short value
         short requestID = (short) random.nextInt(Short.MAX_VALUE + 1);
@@ -32,10 +33,15 @@ public class dnsClient {
 
         byte[] response = new byte[1024];
         DatagramPacket responsePacket = new DatagramPacket(response, response.length);
-        socket.receive(responsePacket);
+        try {
+            socket.receive(responsePacket);
+        } catch (SocketTimeoutException e) {
+            System.out.println("TIMEOUT" + e.getMessage());
+        }
+        //socket.receive(responsePacket);
         DataInputStream dataInputStream = new DataInputStream(new ByteArrayInputStream(response));
 
-        short queryID = dataInputStream.readShort();
+        dataInputStream.skipBytes(2);
         short flags = dataInputStream.readByte();
         int AA = ( flags & 0b00000100) >>> 2;
         int TC = ( flags & 0b00000010) >>> 1;
@@ -48,13 +54,18 @@ public class dnsClient {
         } else if (RCODE == SERVER_ERROR) {
             System.out.println("Error: server error (RCODE == 2)");
         }
+        // exit upon error
+        if (RCODE != 0) {
+            socket.close();
+            return;
+        }
         dataInputStream.skipBytes(2);
         short ANCOUNT = dataInputStream.readShort();
         dataInputStream.skipBytes(4);
         skipQuestionSection(dataInputStream);
         ArrayList<String> address = getAnswers(dataInputStream, ANCOUNT);
-        System.out.println(address);
-        // need to parse packet -> first check for errors
+        System.out.println(address + ", truncation bit is " + TC + " authoritative answer bit is " + AA);
+        socket.close();
         // send all the answers (IP addresses), whether the answer was authoritative (check AA bit) and whether it was truncated (TC bit)
 	}
 
@@ -101,7 +112,6 @@ public class dnsClient {
                 dataInputStream.readByte();
             }
         }
-
         dataInputStream.skipBytes(4);
     }
 

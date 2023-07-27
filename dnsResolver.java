@@ -16,6 +16,11 @@ public class dnsResolver {
 
         int port = Integer.parseInt(args[0]);
         DatagramSocket socket = new DatagramSocket(port);
+
+        String filepath = "named.root";
+        ArrayList<String> rootServers = extractRootAddresses(filepath);
+        System.out.println(rootServers);
+
         while (true) {
             DatagramPacket request = new DatagramPacket(new byte[1024], 1024);
             socket.receive(request);
@@ -27,20 +32,36 @@ public class dnsResolver {
             int clientPort = request.getPort();
             // NEW UNTESTED LINE BELOLW
             HashSet<String> visited = new HashSet<>();
-            String filepath = "named.root";
-            ArrayList<String> rootServers = extractRootAddresses(filepath);
-            System.out.println(rootServers);
             DatagramSocket socket2 = new DatagramSocket();
-            byte[] ret = sendAnswerPacket(rootServers, array, socket2, new ArrayList<>(rootServers), visited);
-            DatagramPacket packet;
-            if (ret == null) {
-                array[3] = (byte) (array[3] | 0b00000010);
-                packet = new DatagramPacket(array, array.length, clientHost, clientPort);
-            } else {
-                packet = new DatagramPacket(ret, ret.length, clientHost, clientPort);
-            }
+            // multithreading after this comment
+            // byte[] ret = sendAnswerPacket(new ArrayList<>(rootServers), array, socket2, new ArrayList<>(rootServers), visited);
+            // DatagramPacket packet;
+            // if (ret == null) {
+            //     array[3] = (byte) (array[3] | 0b00000010);
+            //     packet = new DatagramPacket(array, array.length, clientHost, clientPort);
+            // } else {
+            //     packet = new DatagramPacket(ret, ret.length, clientHost, clientPort);
+            // }
             
-            socket.send(packet);
+            // socket2.send(packet);
+            Runnable query = () -> {
+                try {
+                    byte[] ret = sendAnswerPacket(new ArrayList<>(rootServers), array, socket2, new ArrayList<>(rootServers), visited);
+                    DatagramPacket packet;
+                    if (ret == null) {
+                        array[3] = (byte) (array[3] | 0b00000010);
+                        packet = new DatagramPacket(array, array.length, clientHost, clientPort);
+                    } else {
+                        packet = new DatagramPacket(ret, ret.length, clientHost, clientPort);
+                    }
+        
+                    socket2.send(packet);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            };
+            Thread thread = new Thread(query);
+            thread.start();
         }
     } 
 
