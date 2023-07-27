@@ -2,7 +2,7 @@ import java.io.*;
 import java.net.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
-public class dnsClient {
+public class Client {
     private static final int NAME_ERROR = 3;
     private static final int FORMAT_ERROR = 1;
     private static final int SERVER_ERROR = 2;
@@ -39,7 +39,6 @@ public class dnsClient {
             socket.close();
             return;
         }
-        //socket.receive(responsePacket);
         DataInputStream dataInputStream = new DataInputStream(new ByteArrayInputStream(response));
 
         dataInputStream.skipBytes(2);

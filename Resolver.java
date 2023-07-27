@@ -4,7 +4,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-public class dnsResolver {
+public class Resolver {
     private static final int DNS_SERVER_PORT = 53;
     private static final int NAME_ERROR = 3;
     private static final int FORMAT_ERROR = 1;
