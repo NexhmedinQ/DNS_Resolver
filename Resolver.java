@@ -31,10 +31,11 @@ public class Resolver {
             // details to build return datagram packet
             InetAddress clientHost = request.getAddress();
             int clientPort = request.getPort();
-
+            // need hashset to ensure we don't requery servers and don't come across a circular dependancy
             HashSet<String> visited = new HashSet<>();
             DatagramSocket processingSocket = new DatagramSocket();
             processingSocket.setSoTimeout(timeout);
+            // create separate threads to process each query
             Runnable query = () -> {
                 try {
                     byte[] ret = sendAnswerPacket(new ArrayList<>(rootServers), array, processingSocket, new ArrayList<>(rootServers), visited);
@@ -44,6 +45,7 @@ public class Resolver {
                         array[3] = (byte) (array[3] | 0b00000010);
                         packet = new DatagramPacket(array, array.length, clientHost, clientPort);
                     } else {
+                        // otherwise we return the packet with the answer/error
                         packet = new DatagramPacket(ret, ret.length, clientHost, clientPort);
                     }
         
@@ -56,15 +58,15 @@ public class Resolver {
             thread.start();
         }
     } 
-
+    // check for server error
     private static boolean checkServerError(int RCODE) {
         return RCODE == SERVER_ERROR;
     }
-
+    // check other errors
     private static boolean checkOtherErrors(int RCODE) {
         return RCODE != 0;  
     }
-
+    // process the NS rdata string and get the entire domain name
     private static String getNSRecordString(byte[] rdata, int index, byte[] response) {
         StringBuilder nsRecord = new StringBuilder();
 
@@ -85,6 +87,7 @@ public class Resolver {
                 int offset = ((labelLength & 0b00111111) << 8) + (rdata[i++] & 0b11111111);
                 String label = getNSRecordString(response, offset, response); // Recursive call to continue parsing after compression
                 nsRecord.append(label);
+                // nothing follows a pointer so we can break
                 break;
             } else {
                 // Non-compressed label
@@ -96,13 +99,13 @@ public class Resolver {
 
         return nsRecord.toString();
     }
-
+    // skip record types that aren't A or NS
     private static void skipOtherRecordTypes(DataInputStream stream) throws IOException {
         stream.skipBytes(6); // TTL and CLASS fields
         short rdataLength = stream.readShort();
         stream.skipBytes(rdataLength);
     }
-
+    // returns an array containing the root addresses from the file
     private static ArrayList<String> extractRootAddresses(String filePath) {
         ArrayList<String> ipAddresses = new ArrayList<>();
 
@@ -124,7 +127,13 @@ public class Resolver {
         return ipAddresses;
         
     }
-
+    // algo explanation:
+    // while the list of addresses isn't empty we remove from the back and query it
+    // if we get an error or an answer we return
+    // if we have additional records we add the ips to the ipAddresses list
+    // if we don't have additional records we recursively query the NS records in the auth section
+    // the algorithm is set up to limit the queries of NS records to 1 unless the recursion returns null in which case we know that avenue does not return the answer
+    // and we can query the next NS records to get the ip. 
     private static byte[] sendAnswerPacket(ArrayList<String> ipAddresses, byte[] data, DatagramSocket socket, ArrayList<String> rootServers, HashSet<String> visited) throws Exception {
         while (!ipAddresses.isEmpty()) {
             // pop from list
@@ -178,9 +187,11 @@ public class Resolver {
                     byte[] NSPacket = Helper.buildPacket(requestID, nsRecords.get(i));
                     byte[] dataFromNS = sendAnswerPacket(rootServers, NSPacket, socket, rootServers, new HashSet<>());
                     nsAddresses = getAnswersFromBeginningOfPacket(dataFromNS);
+                    // process the next auth record if we don't get any ip addresses to query
                     if (!nsAddresses.isEmpty()) {
                         byte[] res = sendAnswerPacket(nsAddresses, data, socket, rootServers, visited);
                         if (res != null) {
+                            // early return if the query of the ip addresses from the NS give us the answer
                             return res;
                         }
                     } 
@@ -190,7 +201,7 @@ public class Resolver {
         }
         return null;
     }
-
+    // returns a list of the domain names from the auth section
     private static ArrayList<String> getNS(DataInputStream dataInputStream, int NSCOUNT, byte[] response) throws IOException {
         ArrayList<String> nsRecords = new ArrayList<>();
         for (int i = 0; i < NSCOUNT; i++) {
@@ -211,7 +222,7 @@ public class Resolver {
         return nsRecords;
 
     }
-
+    // processes the additional section and extracts the ipv4 addresses into a list which is then returned
     private static ArrayList<String> getAdditionalRecords(DataInputStream dataInputStream, int ARCOUNT) throws IOException {
         ArrayList<String> aRecords = new ArrayList<>();
         for (int i = 0; i < ARCOUNT; i++) {
@@ -240,7 +251,7 @@ public class Resolver {
         }
         return aRecords;
     }
-
+    // provided the packet, this function processes it and returns a list of the answer ip addresses
     private static ArrayList<String> getAnswersFromBeginningOfPacket(byte[] packet) throws IOException {
         DataInputStream dataInputStream = new DataInputStream(new ByteArrayInputStream(packet));
 

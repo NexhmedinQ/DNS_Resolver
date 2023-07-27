@@ -47,6 +47,7 @@ public class Client {
 
         // Convert to a string with 3 decimal places
         String formattedTime = String.format("%.3f", millis);
+        // write the time taken to the file
         try {
             File file = new File(filePath);
             if (!file.exists()) {
