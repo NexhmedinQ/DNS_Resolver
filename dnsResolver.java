@@ -6,48 +6,40 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 public class dnsResolver {
     private static final int DNS_SERVER_PORT = 53;
+    private static final int NAME_ERROR = 3;
+    private static final int FORMAT_ERROR = 1;
+    private static final int SERVER_ERROR = 2;
     public static void main(String[] args) throws Exception {
 
-        if (args.length != 1) {
+        if (args.length != 2) {
             System.err.println("Error: invalid arguments");
-            System.err.println("Usage: resolver port");
+            System.err.println("Usage: resolver port timeout");
             System.exit(1);
         }
 
         int port = Integer.parseInt(args[0]);
+        int timeout = Integer.parseInt(args[1]) * 1000;
         DatagramSocket socket = new DatagramSocket(port);
-
         String filepath = "named.root";
         ArrayList<String> rootServers = extractRootAddresses(filepath);
-        System.out.println(rootServers);
-
+        // listening for clients loop
         while (true) {
             DatagramPacket request = new DatagramPacket(new byte[1024], 1024);
             socket.receive(request);
             byte[] array = new byte[request.getLength()];
             System.arraycopy(request.getData(), request.getOffset(), array, 0, request.getLength());
-            System.out.println(array.length);
             // details to build return datagram packet
             InetAddress clientHost = request.getAddress();
             int clientPort = request.getPort();
-            // NEW UNTESTED LINE BELOLW
+
             HashSet<String> visited = new HashSet<>();
-            DatagramSocket socket2 = new DatagramSocket();
-            // multithreading after this comment
-            // byte[] ret = sendAnswerPacket(new ArrayList<>(rootServers), array, socket2, new ArrayList<>(rootServers), visited);
-            // DatagramPacket packet;
-            // if (ret == null) {
-            //     array[3] = (byte) (array[3] | 0b00000010);
-            //     packet = new DatagramPacket(array, array.length, clientHost, clientPort);
-            // } else {
-            //     packet = new DatagramPacket(ret, ret.length, clientHost, clientPort);
-            // }
-            
-            // socket2.send(packet);
+            DatagramSocket processingSocket = new DatagramSocket();
+            processingSocket.setSoTimeout(timeout);
             Runnable query = () -> {
                 try {
-                    byte[] ret = sendAnswerPacket(new ArrayList<>(rootServers), array, socket2, new ArrayList<>(rootServers), visited);
+                    byte[] ret = sendAnswerPacket(new ArrayList<>(rootServers), array, processingSocket, new ArrayList<>(rootServers), visited);
                     DatagramPacket packet;
+                    // in the very unlikely case we don't have an error and we exhaust the search space we send a "dummy packet" with a server error so the client displays that
                     if (ret == null) {
                         array[3] = (byte) (array[3] | 0b00000010);
                         packet = new DatagramPacket(array, array.length, clientHost, clientPort);
@@ -55,7 +47,7 @@ public class dnsResolver {
                         packet = new DatagramPacket(ret, ret.length, clientHost, clientPort);
                     }
         
-                    socket2.send(packet);
+                    processingSocket.send(packet);
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
@@ -65,26 +57,15 @@ public class dnsResolver {
         }
     } 
 
-
-    private static boolean checkServerError(int RCODE) throws IOException {
-        if (RCODE == 2) {
-            return true;
-        }
-        return false;
+    private static boolean checkServerError(int RCODE) {
+        return RCODE == SERVER_ERROR;
     }
 
-    private static boolean checkOtherErrors(int RCODE) throws IOException {
-        if (RCODE == 1 || RCODE == 3) {
-            return true;
-        }
-        return false;  
+    private static boolean checkOtherErrors(int RCODE) {
+        return RCODE != 0;  
     }
 
-    private static ArrayList<String> getIpAddresses(DataInputStream dataInputStream) {
-        return new ArrayList<>();
-    }
-
-    private static String getNSRecord(byte[] rdata, int index, byte[] response) {
+    private static String getNSRecordString(byte[] rdata, int index, byte[] response) {
         StringBuilder nsRecord = new StringBuilder();
 
         int i = index;
@@ -102,7 +83,7 @@ public class dnsResolver {
             if ((labelLength & 0b11000000) == 0b11000000) {
                 // Compressed label, jump to the offset specified in the next byte
                 int offset = ((labelLength & 0b00111111) << 8) + (rdata[i++] & 0b11111111);
-                String label = getNSRecord(response, offset, response); // Recursive call to continue parsing after compression
+                String label = getNSRecordString(response, offset, response); // Recursive call to continue parsing after compression
                 nsRecord.append(label);
                 break;
             } else {
@@ -114,17 +95,6 @@ public class dnsResolver {
         }
 
         return nsRecord.toString();
-    }
-
-    private static void skipQname(DataInputStream dataInputStream) throws IOException {
-        int labelLength;
-        while ((labelLength = dataInputStream.readUnsignedByte()) > 0) {
-            if ((labelLength & 0xC0) == 0xC0) {
-                dataInputStream.skipBytes(1);
-                break;
-            }
-            dataInputStream.skipBytes(labelLength);
-        }
     }
 
     private static void skipOtherRecordTypes(DataInputStream stream) throws IOException {
@@ -155,52 +125,24 @@ public class dnsResolver {
         
     }
 
-    private static byte[] buildPacket(short requestID, String requestAddr, boolean isRecursive) throws Exception {
-        ByteArrayOutputStream byteArrayOutput = new ByteArrayOutputStream();
-        DataOutputStream dataOutput = new DataOutputStream(byteArrayOutput);
-        short requestFlags;
-        if (isRecursive) {
-            requestFlags = Short.parseShort("0000000100000000", 2);
-        } else {
-            requestFlags = Short.parseShort("0000000000000000", 2);
-        }
-        dataOutput.writeShort(requestID);
-        dataOutput.writeShort(requestFlags);
-        // the counts
-        dataOutput.writeShort(1);
-        dataOutput.writeShort(0);
-        dataOutput.writeShort(0);
-        dataOutput.writeShort(0);
-        String[] addressParts = requestAddr.split("\\.");
-        for (int i = 0; i < addressParts.length; i++) {
-            byte[] bytes = addressParts[i].getBytes(StandardCharsets.UTF_8);
-            dataOutput.writeByte(bytes.length);
-            dataOutput.write(bytes);
-        }
-        dataOutput.writeByte(0);
-        // A record
-        dataOutput.writeShort(1);
-        // IN class
-        dataOutput.writeShort(1);
-        return byteArrayOutput.toByteArray();
-    }
-
     private static byte[] sendAnswerPacket(ArrayList<String> ipAddresses, byte[] data, DatagramSocket socket, ArrayList<String> rootServers, HashSet<String> visited) throws Exception {
         while (!ipAddresses.isEmpty()) {
             // pop from list
             String sendAddressString = ipAddresses.remove(ipAddresses.size() - 1);
-            System.out.println(sendAddressString);
             InetAddress sendAddress = InetAddress.getByName(sendAddressString);
             // send packet
             DatagramPacket rep = new DatagramPacket(data, data.length, sendAddress, DNS_SERVER_PORT);
             socket.send(rep);
             byte[] response = new byte[1024];
             DatagramPacket packet = new DatagramPacket(response, response.length);
-            socket.receive(packet);
+            try {
+                socket.receive(packet);
+            } catch (SocketTimeoutException e) {
+                continue;
+            }
             visited.add(sendAddressString);
             // decode and add to the list if possible (or return)
             DataInputStream dataInputStream = new DataInputStream(new ByteArrayInputStream(response));
-            System.out.println("Transaction ID: " + dataInputStream.readShort()); // ID
             short flags = dataInputStream.readByte();
             flags = dataInputStream.readByte();
             int RCODE = flags & 0b00001111; // for errors
@@ -210,38 +152,32 @@ public class dnsResolver {
             short ARCOUNT = dataInputStream.readShort();
             // send packet to client and continue
             if (checkOtherErrors(RCODE) || ANCOUNT > 0) {
-                System.out.println("we have answer");
                 return response;
             }
             // go to next iteration of loop
             if (checkServerError(RCODE)) {
-                System.out.println("done");
                 continue;
             }
             // now we're left with the case where we don't have an answer
-            skipQuestionSection(dataInputStream);
+            Helper.skipQuestionSection(dataInputStream);
 
             ArrayList<String> nsRecords = getNS(dataInputStream, NSCOUNT, response);
             ArrayList<String> aRecords = getAdditionalRecords(dataInputStream, ARCOUNT);
             
             if (aRecords.size() > 0) {
-                System.out.println("please WORK");
                 for (String address : aRecords) {
                     if (!visited.contains(address)) {
                         ipAddresses.add(address);
                     }
                 }
             } else {
-                System.out.println("please WORKKFGMWKNFGMOWJNFGUOIWN");
                 for (int i = 0; i < nsRecords.size(); i++) {
                     ArrayList<String> nsAddresses = new ArrayList<>();
-                    for (String rootServer : rootServers) {
-                        InetAddress rootAddress = InetAddress.getByName(rootServer);
-                        nsAddresses = getIpFromNS(rootAddress, socket, nsRecords.get(i));
-                        if (!nsAddresses.isEmpty()) {
-                            break;
-                        }
-                    }
+                    Random random = new Random();
+                    short requestID = (short) random.nextInt(Short.MAX_VALUE + 1);
+                    byte[] NSPacket = Helper.buildPacket(requestID, nsRecords.get(i));
+                    byte[] dataFromNS = sendAnswerPacket(rootServers, NSPacket, socket, rootServers, new HashSet<>());
+                    nsAddresses = getAnswersFromBeginningOfPacket(dataFromNS);
                     if (!nsAddresses.isEmpty()) {
                         byte[] res = sendAnswerPacket(nsAddresses, data, socket, rootServers, visited);
                         if (res != null) {
@@ -255,31 +191,39 @@ public class dnsResolver {
         return null;
     }
 
-    private static ArrayList<String> getIpFromNS(InetAddress rootServer, DatagramSocket socket, String domain) throws Exception {
-        Random random = new Random();
-        // Generate a random short value
-        short requestID = (short) random.nextInt(Short.MAX_VALUE + 1);
-        byte[] data = buildPacket(requestID, domain, true);
-        DatagramPacket packet = new DatagramPacket(data, data.length, rootServer, DNS_SERVER_PORT);
-        socket.send(packet);
+    private static ArrayList<String> getNS(DataInputStream dataInputStream, int NSCOUNT, byte[] response) throws IOException {
+        ArrayList<String> nsRecords = new ArrayList<>();
+        for (int i = 0; i < NSCOUNT; i++) {
+            Helper.skipQname(dataInputStream);
+            short TYPE = dataInputStream.readShort();
+            if (TYPE != 2) {
+                skipOtherRecordTypes(dataInputStream);
+                continue;
+            }
+            dataInputStream.skipBytes(6);
+            int RDLENGTH = dataInputStream.readShort();
 
-        byte[] response = new byte[1024];
-        DatagramPacket responsePacket = new DatagramPacket(response, response.length);
-        socket.receive(responsePacket);
-        DataInputStream dataInputStream = new DataInputStream(new ByteArrayInputStream(response));
-        dataInputStream.skipBytes(6);
-        short ANCOUNT = dataInputStream.readShort();
-        dataInputStream.skipBytes(4);
-        skipQuestionSection(dataInputStream);
-        return getAnswers(dataInputStream, ANCOUNT);
+            byte[] rdata = new byte[RDLENGTH];
+            dataInputStream.readFully(rdata);
+            String NSRecord = getNSRecordString(rdata, 0, response);
+            nsRecords.add(NSRecord);
+        }
+        return nsRecords;
+
     }
 
-    private static ArrayList<String> getAnswers(DataInputStream dataInputStream, short ANCOUNT) throws IOException {
-        ArrayList<String> answerList = new ArrayList<>();
-        for (int i = 0; i < ANCOUNT; i++) {
-            skipQname(dataInputStream);
+    private static ArrayList<String> getAdditionalRecords(DataInputStream dataInputStream, int ARCOUNT) throws IOException {
+        ArrayList<String> aRecords = new ArrayList<>();
+        for (int i = 0; i < ARCOUNT; i++) {
+            Helper.skipQname(dataInputStream);
             ArrayList<Integer> RDATA = new ArrayList<>();
-            dataInputStream.skipBytes(8);
+            short TYPE = dataInputStream.readShort();
+            // some support to skip AAAA records if we come across them
+            if (TYPE != 1) {
+                skipOtherRecordTypes(dataInputStream);
+                continue;
+            }
+            dataInputStream.skipBytes(6);
             int RDLENGTH = dataInputStream.readShort();
             for (int s = 0; s < RDLENGTH; s++) {
                 int nx = dataInputStream.readByte() & 255;
@@ -292,69 +236,26 @@ public class dnsResolver {
             }
             ip.deleteCharAt(ip.length() - 1);
             String ipFinal = ip.toString();
-            answerList.add(ipFinal);
-        }
-        return answerList;
-    }
-
-    private static void skipQuestionSection(DataInputStream dataInputStream) throws IOException {
-        int wordLen;
-        while ((wordLen = dataInputStream.readByte()) > 0) {
-            for (int i = 0; i < wordLen; i++) {
-                dataInputStream.readByte();
-            }
-        }
-
-        dataInputStream.skipBytes(4);
-    }
-
-    private static ArrayList<String> getNS(DataInputStream dataInputStream, int NSCOUNT, byte[] response) throws IOException {
-        ArrayList<String> nsRecords = new ArrayList<>();
-        for (int i = 0; i < NSCOUNT; i++) {
-            skipQname(dataInputStream);
-            short TYPE = dataInputStream.readShort();
-            if (TYPE != 2) {
-                skipOtherRecordTypes(dataInputStream);
-                continue;
-            }
-            dataInputStream.skipBytes(6);
-            int RDLENGTH = dataInputStream.readShort();
-
-            byte[] rdata = new byte[RDLENGTH];
-            dataInputStream.readFully(rdata);
-            String NSRecord = getNSRecord(rdata, 0, response);
-            nsRecords.add(NSRecord);
-        }
-        return nsRecords;
-
-    }
-
-    private static ArrayList<String> getAdditionalRecords(DataInputStream dataInputStream, int ARCOUNT) throws IOException {
-        ArrayList<String> aRecords = new ArrayList<>();
-        for (int i = 0; i < ARCOUNT; i++) {
-            skipQname(dataInputStream);
-            ArrayList<Integer> RDATA = new ArrayList<>();
-            short TYPE = dataInputStream.readShort();
-            // some support to skip AAAA records if we come across them
-            if (TYPE != 1) {
-                skipOtherRecordTypes(dataInputStream);
-                continue;
-            }
-            dataInputStream.skipBytes(6);
-            int RDLENGTH = dataInputStream.readShort();
-            for (int s = 0; s < RDLENGTH; s++) {
-                int nx = dataInputStream.readByte() & 255;// and with 255 to
-                RDATA.add(nx);
-            }
-
-            StringBuilder ip = new StringBuilder();
-            for (Integer ipPart:RDATA) {
-                ip.append(ipPart).append(".");
-            }
-            ip.deleteCharAt(ip.length() - 1);
-            String ipFinal = ip.toString();
             aRecords.add(ipFinal);
         }
         return aRecords;
+    }
+
+    private static ArrayList<String> getAnswersFromBeginningOfPacket(byte[] packet) throws IOException {
+        DataInputStream dataInputStream = new DataInputStream(new ByteArrayInputStream(packet));
+
+        dataInputStream.skipBytes(2);
+        short flags = dataInputStream.readByte();
+        flags = dataInputStream.readByte();
+        int RCODE = flags & 0b00001111; // for errors
+        if (RCODE == NAME_ERROR || RCODE == FORMAT_ERROR || RCODE == SERVER_ERROR) {
+            return new ArrayList<>();
+        } 
+        dataInputStream.skipBytes(2);
+        short ANCOUNT = dataInputStream.readShort();
+        dataInputStream.skipBytes(4);
+        Helper.skipQuestionSection(dataInputStream);
+        ArrayList<String> res = Helper.getAnswers(dataInputStream, ANCOUNT);
+        return res;
     }
 }
